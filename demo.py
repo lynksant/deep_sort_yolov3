@@ -18,6 +18,8 @@ from tools import generate_detections as gdet
 import imutils.video
 from videocaptureasync import VideoCaptureAsync
 
+import csv
+
 warnings.filterwarnings('ignore')
 
 def main(yolo):
@@ -63,61 +65,70 @@ def main(yolo):
     track_count = 0
     unique_track_ids_set = set()
 
-    while True:
-        ret, frame = video_capture.read()  # frame shape 640*480*3
-        if ret != True:
-             break
+    with open('output/db.csv', mode='w') as db_csv:
+        csv_writer = csv.writer(db_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        csv_writer.writerow(['Frame Index', 'Lat', 'Lon', 'Frame People Count', 'Video People Count'])
 
-        t1 = time.time()
+        while True:
+            ret, frame = video_capture.read()  # frame shape 640*480*3
+            if ret != True or frame_index == 5:
+                 break
 
-        image = Image.fromarray(frame[...,::-1])  # bgr to rgb
-        detected_image = yolo.detect_image(image)
-        boxs = detected_image[0]
-        confidence = detected_image[1]
+            t1 = time.time()
 
-        features = encoder(frame,boxs)
+            image = Image.fromarray(frame[...,::-1])  # bgr to rgb
+            detected_image = yolo.detect_image(image)
+            boxs = detected_image[0]
+            confidence = detected_image[1]
 
-        detections = [Detection(bbox, confidence, feature) for bbox, confidence, feature in zip(boxs, confidence, features)]
+            features = encoder(frame,boxs)
 
-        # Run non-maxima suppression.
-        boxes = np.array([d.tlwh for d in detections])
-        scores = np.array([d.confidence for d in detections])
-        indices = preprocessing.non_max_suppression(boxes, nms_max_overlap, scores)
-        detections = [detections[i] for i in indices]
+            detections = [Detection(bbox, confidence, feature) for bbox, confidence, feature in zip(boxs, confidence, features)]
 
-        # Call the tracker
-        tracker.predict()
-        tracker.update(detections)
+            # Run non-maxima suppression.
+            boxes = np.array([d.tlwh for d in detections])
+            scores = np.array([d.confidence for d in detections])
+            indices = preprocessing.non_max_suppression(boxes, nms_max_overlap, scores)
+            detections = [detections[i] for i in indices]
+            frame_track_ids_set = set()
 
-        for track in tracker.tracks:
-            if not track.is_confirmed() or track.time_since_update > 1:
-                continue
-            unique_track_ids_set.add(track.track_id)
-            track_count = len(unique_track_ids_set)
+            # Call the tracker
+            tracker.predict()
+            tracker.update(detections)
 
-            bbox = track.to_tlbr()
+            for track in tracker.tracks:
+                if not track.is_confirmed() or track.time_since_update > 1:
+                    continue
+                unique_track_ids_set.add(track.track_id)
+                frame_track_ids_set.add(track.track_id)
+                track_count = len(unique_track_ids_set)
 
-        for det in detections:
-            bbox = det.to_tlbr()
-            score = "%.2f" % round(det.confidence * 100, 2)
-            cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(255,0,0), 2)
-            cv2.putText(frame, score + '%', (int(bbox[0]), int(bbox[3])), 0, 5e-3 * 130, (0,255,0),2)
+                bbox = track.to_tlbr()
 
-        cv2.putText(frame, str(track_count),(50, 50),0, 5e-3 * 200, (0,255,0),2)
+            for det in detections:
+                bbox = det.to_tlbr()
+                score = "%.2f" % round(det.confidence * 100, 2)
+                cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(255,0,0), 2)
+                cv2.putText(frame, score + '%', (int(bbox[0]), int(bbox[3])), 0, 5e-3 * 130, (0,255,0),2)
 
-        if writeVideo_flag: # and not asyncVideo_flag:
-            # save a frame
-            out.write(frame)
-            frame_index = frame_index + 1
+            cv2.putText(frame, str(track_count),(50, 50),0, 5e-3 * 200, (0,255,0),2)
 
-        fps_imutils.update()
+            if writeVideo_flag: # and not asyncVideo_flag:
+                # save a frame
+                out.write(frame)
+                frame_index = frame_index + 1
 
-        fps = (fps + (1./(time.time()-t1))) / 2
-        print("FPS = %f"%(fps))
+            fps_imutils.update()
 
-        # Press Q to stop!
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            fps = (fps + (1./(time.time()-t1))) / 2
+            print("FPS = %f"%(fps))
+
+            # Write data to db
+            csv_writer.writerow([str(frame_index), str(0), str(0), str(len(frame_track_ids_set)), len(unique_track_ids_set)])
+
+            # Press Q to stop!
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
     fps_imutils.stop()
     print('imutils FPS: {}'.format(fps_imutils.fps()))
