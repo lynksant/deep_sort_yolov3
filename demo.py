@@ -19,6 +19,7 @@ import imutils.video
 from videocaptureasync import VideoCaptureAsync
 
 import csv
+import random
 
 warnings.filterwarnings('ignore')
 
@@ -64,14 +65,15 @@ def main(yolo):
 
     track_count = 0
     unique_track_ids_set = set()
+    track_to_display_mapping_dict = dict()
 
     with open('output/db.csv', mode='w') as db_csv:
         csv_writer = csv.writer(db_csv, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        csv_writer.writerow(['Frame Index', 'Lat', 'Lon', 'Frame People Count', 'Video People Count'])
+        csv_writer.writerow(['Frame #', 'GPS(Lat)', 'GPS(Lon)', 'People Count (frame)', 'People Count (video)'])
 
         while True:
             ret, frame = video_capture.read()  # frame shape 640*480*3
-            if ret != True or frame_index == 5:
+            if ret != True or frame_index == 10:
                  break
 
             t1 = time.time()
@@ -102,16 +104,25 @@ def main(yolo):
                 unique_track_ids_set.add(track.track_id)
                 frame_track_ids_set.add(track.track_id)
                 track_count = len(unique_track_ids_set)
+                if str(track.track_id) in track_to_display_mapping_dict:
+                    display_id, red, green, blue = track_to_display_mapping_dict[str(track.track_id)]
+                else:
+                    display_id = track_count
+                    red = random.randint(0,255)
+                    green = random.randint(0,255)
+                    blue = random.randint(0,255)
+                    track_to_display_mapping_dict[str(track.track_id)] = (display_id, red, green, blue)
 
                 bbox = track.to_tlbr()
+                cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(red,green,blue), 2)
+                cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[1]) - 30),(red,green,blue), -1)
+                cv2.putText(frame, 'p' + str(display_id), (int(bbox[0]), int(bbox[1]) - 10), 0, 5e-3 * 130, (255,255,255), 2)
 
             for det in detections:
                 bbox = det.to_tlbr()
                 score = "%.2f" % round(det.confidence * 100, 2)
-                cv2.rectangle(frame,(int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])),(255,0,0), 2)
-                cv2.putText(frame, score + '%', (int(bbox[0]), int(bbox[3])), 0, 5e-3 * 130, (0,255,0),2)
 
-            cv2.putText(frame, str(track_count),(50, 50),0, 5e-3 * 200, (0,255,0),2)
+            cv2.putText(frame, str(track_count),(50, 50),0, 5e-3 * 200, (255,255,255),2)
 
             if writeVideo_flag: # and not asyncVideo_flag:
                 # save a frame
